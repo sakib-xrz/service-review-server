@@ -4,6 +4,7 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const app = express();
 const port = process.env.PORT || 5000;
 require("dotenv").config();
+const jwt = require("jsonwebtoken");
 
 app.use(cors());
 app.use(express.json());
@@ -16,8 +17,35 @@ const client = new MongoClient(uri, {
   serverApi: ServerApiVersion.v1,
 });
 
+const verifyJwt = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  console.log(authHeader);
+  if (!authHeader) {
+    return res.status(401).send({ message: "unauthorized access" });
+  }
+
+  const token = authHeader.split(" ")[1];
+  console.log(token);
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(403).send({ message: "Forbidden access" });
+    }
+    console.log(decoded);
+    req.decoded = decoded;
+    next();
+  });
+};
+
 async function run() {
   try {
+    app.post("/jwt", (req, res) => {
+      const user = req.body;
+      console.log(user);
+      const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "5h" });
+      res.json(token);
+    });
+
     const serviceCollection = client
       .db("service-review")
       .collection("services");
@@ -52,14 +80,15 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/reviews/my-review", async (req, res) => {
-      let query = {};
-      if (req.query.email) {
-        query = {
-          email: req.query.email,
-        };
+    app.get("/reviews/my-review", verifyJwt, async (req, res) => {
+      const decoded = req.decoded;
+      if (decoded.email !== req.query.email) {
+        return res.status(403).send({ message: "Forbidden access" });
       }
-      const cursor = reviewCollection.find(query);
+      const email = req.query.email;
+      console.log(email);
+      const filter = { email: email };
+      const cursor = reviewCollection.find(filter);
       const result = await cursor.toArray();
       res.send(result);
     });
